@@ -1,11 +1,34 @@
-var moment = require('moment');
+require('dotenv').config();
+const express = require('express');
+var mongoose = require('mongoose');
+var bodyParser = require("body-parser");
+var dns = require("dns");
+const cors = require('cors');
+const validUrl = require('valid-url');
+const app = express();
 
-var express = require('express');
-var app = express();
+// Basic Configuration
+const port = process.env.PORT || 3000;
 
-// enable CORS (https://en.wikipedia.org/wiki/Cross-origin_resource_sharing)
-// so that your API is remotely testable by FCC 
-var cors = require('cors');
+mongoose.connect(process.env.MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true });
+
+var db = mongoose.connection;
+db.on("error", console.error.bind(console, "connection error:"));
+db.once("open", function() {
+  console.log("we're connected!");
+});
+
+//Schema n Model
+var urlSchema = new mongoose.Schema({
+  id: Number,
+  url: String
+});
+
+var urlModel = mongoose.model("urls", urlSchema);
+app.use(bodyParser.urlencoded({ extended: false }));
+
+app.use(cors());
+
 const { type } = require('express/lib/response');
 app.use(cors({optionsSuccessStatus: 200}));  // some legacy browsers choke on 204
 
@@ -69,6 +92,7 @@ app.get("/api/:date", function (req, res) {
 });
 
 
+
 app.get("/api", (req, res)=>{
   let date = new Date();
   
@@ -83,6 +107,57 @@ app.get("/api", (req, res)=>{
 app.get('/api/whoami', function(req, res) {
   res.json({ ipaddress: ip.address(), language: req.headers["accept-language"], software: req.headers["user-agent"] });
 });
+
+//3rd assignment
+
+app.post('/api/shorturl', async function(req, res) {
+  let input_url = req.body.url;
+  if (!validUrl.isHttpsUri(input_url) || !validUrl.isWebUri(input_url)) {
+    res.json({ "error": 'invalid url' });
+  }
+  else {
+    let record = await urlModel.findOne({
+      url: input_url
+    });
+    if (record) {
+      res.json({
+        original_url: record.url,
+        short_url: record.id
+      });
+    }
+    else {
+      let query = await urlModel.countDocuments({}).exec();
+      let count = query + 1;
+      findOne = new urlModel({
+        id: count,
+        url: input_url
+      });
+      await findOne.save();
+      res.json({
+        original_url: findOne.url,
+        short_url: findOne.id
+      });
+    }
+  }
+});
+
+
+
+app.get('/api/shorturl/:id', async function(req, res) {
+  try {
+    const urlParams = await urlModel.findOne({
+      id: req.params.id
+    })
+    if (urlParams) {
+      return res.redirect(urlParams.url)
+    } else {
+      return res.status(404).json('No URL found')
+    }
+  } catch (err) {
+    console.log(err)
+    res.status(500).json('Server error')
+  }
+})
 
 // listen for requests :)
 var listener = app.listen(process.env.PORT, function () {
